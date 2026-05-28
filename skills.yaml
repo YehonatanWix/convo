@@ -1,0 +1,7 @@
+# skills.yaml — hand-curated tool-sequence signatures that *should* trigger a skill
+debugging:
+  signature: ["Bash", "Read", "Edit", "Bash"]
+  reason: "iterating on a failing test with no debugging skill"
+test_driven_development:
+  signature: ["Edit", "Bash"]
+  reason: "writing code then running tests but never wrote test first"
