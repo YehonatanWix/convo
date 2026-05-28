@@ -1,0 +1,81 @@
+from __future__ import annotations
+import os
+import pathlib
+import typer
+import duckdb
+
+from .ingest import ingest_all
+from .load import open_db
+from .derive.sequences import build_sequences
+from .derive.tokens import build_token_signals
+from .derive.skills import build_skill_signals
+from .derive.recurring import build_recurring_signals
+from . import queries
+
+app = typer.Typer(help="Conversation analyzer.")
+
+def _root() -> pathlib.Path:
+    return pathlib.Path(os.environ.get("CONVO_ROOT", "."))
+
+def _db_path() -> pathlib.Path:
+    return _root() / "corpus.db"
+
+def _projects() -> pathlib.Path:
+    return pathlib.Path(os.environ.get(
+        "CONVO_PROJECTS", str(pathlib.Path.home() / ".claude/projects")
+    ))
+
+@app.command()
+def ingest() -> None:
+    """Parse, sanitize, and load all JSONL sessions, then derive all signals."""
+    root = _root()
+    stats = ingest_all(
+        projects_root=_projects(),
+        db_path=_db_path(),
+        blobs_path=root / "blobs",
+        manifest_path=root / "manifest.json",
+    )
+    typer.echo(f"ingested {stats['sessions_ingested']} new sessions")
+    con = open_db(_db_path())
+    build_sequences(con)
+    build_token_signals(con)
+    skills_yaml = pathlib.Path("skills.yaml")
+    if skills_yaml.exists():
+        build_skill_signals(con, skills_yaml)
+    build_recurring_signals(con)
+    typer.echo("derived all signals")
+
+@app.command("top-bloat")
+def top_bloat(limit: int = 20) -> None:
+    con = duckdb.connect(str(_db_path()))
+    for row in con.execute(queries.TOP_BLOAT, [limit]).fetchall():
+        typer.echo("\t".join(str(c) for c in row))
+
+@app.command("recurring-sequences")
+def recurring_sequences(min_sessions: int = 5, min_projects: int = 3, limit: int = 20) -> None:
+    con = duckdb.connect(str(_db_path()))
+    for row in con.execute(queries.RECURRING, [min_sessions, min_projects, limit]).fetchall():
+        typer.echo("\t".join(str(c) for c in row))
+
+@app.command("skill-health")
+def skill_health(name: str) -> None:
+    con = duckdb.connect(str(_db_path()))
+    row = con.execute(queries.SKILL_HEALTH, [name, name, name]).fetchone()
+    typer.echo(f"invocations={row[0]} abandoned={row[1]} avg_turnaround_tokens={row[2]}")
+
+@app.command()
+def session(session_id: str) -> None:
+    con = duckdb.connect(str(_db_path()))
+    for ts, etype, role, tool, tlen in con.execute(
+        queries.SESSION_TIMELINE, [session_id]
+    ).fetchall():
+        typer.echo(f"{ts} {etype:<10} {role or '-':<10} {tool or '-':<20} len={tlen or 0}")
+
+@app.command()
+def interpret(model: str = "claude-opus-4-7") -> None:
+    """Run the LLM stage against the derived dashboard."""
+    from .llm import interpret as _interpret
+    typer.echo(_interpret(_db_path(), model=model))
+
+if __name__ == "__main__":
+    app()
