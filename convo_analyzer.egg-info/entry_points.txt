@@ -1,2 +1,0 @@
-[console_scripts]
-convo = convo_analyzer.cli:app
