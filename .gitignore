@@ -5,3 +5,4 @@ __pycache__/
 corpus.db
 blobs/
 manifest.json
+analysis/

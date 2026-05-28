@@ -72,10 +72,20 @@ def session(session_id: str) -> None:
         typer.echo(f"{ts} {etype:<10} {role or '-':<10} {tool or '-':<20} len={tlen or 0}")
 
 @app.command()
-def interpret(model: str = "claude-opus-4-7") -> None:
-    """Run the LLM stage against the derived dashboard."""
-    from .llm import interpret as _interpret
-    typer.echo(_interpret(_db_path(), model=model))
+def interpret(
+    print_only: bool = typer.Option(
+        False, "--print", help="Print the command instead of exec'ing claude."
+    ),
+) -> None:
+    """Build the dashboard and launch a Claude Code session to analyze it."""
+    from .llm import write_analysis_inputs
+    out = write_analysis_inputs(_db_path(), _root() / "analysis")
+    typer.echo(f"wrote {out['dashboard_path']}")
+    typer.echo(f"wrote {out['prompt_path']}")
+    if print_only:
+        typer.echo("\nrun:  claude \"$(cat " + str(out["prompt_path"]) + ")\"")
+        return
+    os.execvp("claude", ["claude", out["prompt"]])
 
 if __name__ == "__main__":
     app()

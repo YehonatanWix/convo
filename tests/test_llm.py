@@ -1,12 +1,6 @@
-# tests/test_llm.py
-from convo_analyzer.llm import build_dashboard, interpret
+from convo_analyzer.llm import build_dashboard, write_analysis_inputs
 from convo_analyzer.load import open_db
 
-class _FakeClient:
-    def __init__(self): self.messages = self
-    def create(self, **kw):
-        class R: content=[type("B",(),{"text":"OK"})()]
-        return R()
 
 def test_build_dashboard_empty(tmp_corpus):
     open_db(tmp_corpus["db"])  # create tables
@@ -14,7 +8,10 @@ def test_build_dashboard_empty(tmp_corpus):
     assert "top_bloat" in d
     assert isinstance(d["top_bloat"], list)
 
-def test_interpret_returns_text(tmp_corpus, monkeypatch):
+
+def test_write_analysis_inputs(tmp_corpus, tmp_path):
     open_db(tmp_corpus["db"])
-    out = interpret(tmp_corpus["db"], client=_FakeClient(), model="claude-opus-4-7")
-    assert out == "OK"
+    out = write_analysis_inputs(tmp_corpus["db"], tmp_path / "analysis")
+    assert out["dashboard_path"].exists()
+    assert out["prompt_path"].exists()
+    assert str(out["dashboard_path"]) in out["prompt"]

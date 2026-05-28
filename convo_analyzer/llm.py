@@ -1,16 +1,19 @@
-# convo_analyzer/llm.py
 from __future__ import annotations
 import json
 import pathlib
 import duckdb
 
-PROMPT = """You are reading an aggregated dashboard of a user's Claude Code conversation history.
+PROMPT_TEMPLATE = """You are reading an aggregated dashboard of my Claude Code conversation history.
+The numbers were precomputed by a deterministic pipeline (`convo-analyzer`) over every session
+in `~/.claude/projects/`. Your job is to interpret — not to re-derive — the signals.
 
-For each section, surface 3 concrete observations and at most 2 proposed actions (new skill,
-edited skill, deleted skill, or change to CLAUDE.md). Be terse.
+The dashboard is at: {dashboard_path}
 
-SECTIONS:
-{dashboard}
+For each section in the dashboard, surface:
+- 3 concrete observations (what the data actually shows)
+- at most 2 proposed actions (new skill, edited skill, deleted skill, or change to CLAUDE.md)
+
+Be terse. Reference specific tool names, sequences, and session_ids from the data.
 """
 
 DASHBOARD_QUERIES = {
@@ -20,6 +23,7 @@ DASHBOARD_QUERIES = {
     "skill_abandoned": "SELECT * FROM signal_skill_abandoned LIMIT 20",
     "redundant_reads": "SELECT * FROM signal_redundant_reads ORDER BY count DESC LIMIT 20",
 }
+
 
 def build_dashboard(db_path: pathlib.Path) -> dict:
     con = duckdb.connect(str(db_path))
@@ -31,19 +35,23 @@ def build_dashboard(db_path: pathlib.Path) -> dict:
             out[name] = []
     return out
 
-def interpret(
-    db_path: pathlib.Path,
-    client=None,
-    model: str = "claude-opus-4-7",
-) -> str:
-    if client is None:
-        import anthropic
-        client = anthropic.Anthropic()
+
+def write_analysis_inputs(db_path: pathlib.Path, out_dir: pathlib.Path) -> dict:
+    """Build the dashboard and write dashboard.json + prompt.md.
+
+    Returns paths to both files plus the prompt string for piping to `claude`.
+    """
+    out_dir = pathlib.Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dashboard_path = out_dir / "dashboard.json"
+    prompt_path = out_dir / "analysis-prompt.md"
+
     dashboard = build_dashboard(db_path)
-    prompt = PROMPT.format(dashboard=json.dumps(dashboard, indent=2)[:40000])
-    resp = client.messages.create(
-        model=model,
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text
+    dashboard_path.write_text(json.dumps(dashboard, indent=2))
+    prompt = PROMPT_TEMPLATE.format(dashboard_path=dashboard_path.resolve())
+    prompt_path.write_text(prompt)
+    return {
+        "dashboard_path": dashboard_path,
+        "prompt_path": prompt_path,
+        "prompt": prompt,
+    }
