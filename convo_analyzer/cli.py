@@ -128,6 +128,49 @@ def session(session_id: str) -> None:
         typer.echo(f"{ts} {etype:<10} {role or '-':<10} {tool or '-':<20} len={tlen or 0}")
 
 @app.command()
+def sql(query: str, limit: int = 200) -> None:
+    """Run a read-only SQL query against corpus.db and print a table."""
+    q = query.strip().rstrip(";")
+    lowered = q.lower()
+    forbidden = ("insert ", "update ", "delete ", "drop ", "alter ", "create ", "attach ")
+    if any(tok in lowered for tok in forbidden):
+        typer.echo("error: only read-only queries are allowed", err=True)
+        raise typer.Exit(2)
+    if "limit" not in lowered:
+        q = f"{q} LIMIT {limit}"
+    con = duckdb.connect(str(_db_path()), read_only=True)
+    cur = con.execute(q)
+    headers = [d[0] for d in cur.description]
+    _print_table(headers, cur.fetchall())
+
+
+@app.command()
+def schema() -> None:
+    """List tables and their columns."""
+    con = duckdb.connect(str(_db_path()), read_only=True)
+    tables = [r[0] for r in con.execute(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema='main' ORDER BY table_name"
+    ).fetchall()]
+    for t in tables:
+        cols = con.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name=? ORDER BY ordinal_position", [t],
+        ).fetchall()
+        typer.echo(f"\n{t}")
+        for name, dtype in cols:
+            typer.echo(f"  {name:<32} {dtype}")
+
+
+@app.command()
+def blob(blob_hash: str) -> None:
+    """Print the contents of a blob by hash."""
+    from .blobs import BlobStore
+    store = BlobStore(_root() / "blobs")
+    typer.echo(store.get(blob_hash))
+
+
+@app.command()
 def interpret(
     print_only: bool = typer.Option(
         False, "--print", help="Print the command instead of exec'ing claude."
