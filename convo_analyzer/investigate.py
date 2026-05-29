@@ -156,6 +156,10 @@ def build_investigation(
         all_user = _extract_user_messages(jsonl)
         after = [m for m in all_user if m["ts"] > ts][:window]
         followups = [{"ts": m["ts"], "text": scrub(m["text"])} for m in after]
+        # If the very next user action is /exit, the session ended with no
+        # opportunity for a failure mode to manifest. Drop the candidate.
+        if followups and _is_exit(followups[0]["text"]):
+            continue
         records.append({
             "session_id": sid,
             "invocation_ts": ts,
@@ -165,6 +169,10 @@ def build_investigation(
             "followups": followups,
         })
     return records
+
+
+def _is_exit(text: str) -> bool:
+    return "<command-name>/exit</command-name>" in (text or "")
 
 
 def _jsonl_path_for(projects_root: pathlib.Path, cwd: str, session_id: str) -> pathlib.Path:
