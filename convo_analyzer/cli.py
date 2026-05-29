@@ -174,6 +174,7 @@ def blob(blob_hash: str) -> None:
 def investigate_skill(
     skill_name: str,
     window: int = typer.Option(5, "--window", help="User messages to capture after each invocation."),
+    batch_size: int = typer.Option(5, "--batch-size", help="Candidates per triage subagent batch."),
     print_only: bool = typer.Option(False, "--print", help="Don't launch claude, just print the command."),
 ) -> None:
     """Find failure modes for a skill: launch Claude Code to analyze every invocation."""
@@ -184,6 +185,7 @@ def investigate_skill(
         skill=skill_name,
         projects_root=_projects(),
         window=window,
+        batch_size=batch_size,
     )
     typer.echo(f"wrote {out['packet_path']} ({out['n_candidates']} invocations)", err=True)
     typer.echo(f"wrote {out['prompt_path']}", err=True)

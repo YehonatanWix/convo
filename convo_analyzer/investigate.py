@@ -58,26 +58,73 @@ text). The full bodies live in the raw JSONL.
 
 ## Your task
 
-1. **Triage**: for each candidate, read its `followups` and decide:
-   - REAL_FAILURE — the user interrupted/redirected the skill
-   - NOT_FAILURE — the follow-up is unrelated, a routine continuation, or the
-     skill clearly succeeded (e.g. user said "great", "thanks", or moved on to a
-     new unrelated task)
-   - UNCLEAR — need to read the raw JSONL to decide
-   For UNCLEAR cases, open the `jsonl_path` and read the surrounding events.
+### Step 1 — Triage via subagents (do NOT do this yourself)
 
-2. **Cluster** the REAL_FAILURE cases by the underlying problem (e.g. "skill ran
-   without asking a clarifying question", "skill produced output in wrong format",
-   "skill picked the wrong sub-routine"). One failure mode per cluster.
+Reading every candidate and raw JSONL in *your* context window would bloat it.
+Instead, dispatch triage subagents in batches of {batch_size} candidates each.
+Run batches in parallel where possible (one Agent tool call per batch, all in a
+single message).
 
-3. **For each failure mode**, report:
-   - Name and short description
-   - Count + 2-3 representative `session_id`s with brief quoted evidence
-   - Why the skill failed (root cause, not symptom)
-   - Concrete proposed improvement to the skill: SKILL.md edit, new trigger,
-     missing pre-flight question, etc. Be specific enough that I can apply it.
+For each batch, pass the subagent:
+- The exact slice of candidates from `{packet_path}` (their full JSON entries —
+  copy them inline so the subagent doesn't need to read the file)
+- The failure-mode definition (above)
+- Permission to open `jsonl_path` with Read / Bash+jq when followups are ambiguous
 
-Be terse. Quote evidence. Skip categories with <2 occurrences.
+Tell the subagent to return ONLY a JSON array, no prose, with this exact schema
+per candidate:
+
+```json
+{{
+  "session_id": "...",
+  "verdict": "REAL_FAILURE" | "NOT_FAILURE" | "UNCLEAR",
+  "one_line_reason": "...",          // <= 120 chars, why this verdict
+  "key_quote": "...",                // <= 200 chars, verbatim user text that drove the verdict (empty for NOT_FAILURE)
+  "proximate_cause": "..."           // <= 80 chars, for REAL_FAILURE only: short tag like "missing-clarifying-question", "wrong-format", "wrong-subroutine" — your best guess, used for clustering. Empty otherwise.
+}}
+```
+
+Use this exact dispatch prompt template for each triage subagent (fill in the
+batch slice):
+
+> You are triaging candidates for failure modes of the `{skill}` skill. A
+> failure mode = the user interrupted, corrected, or redirected the skill
+> within the next few messages after invocation. NOT a failure mode: routine
+> continuation, user thanked the assistant, user moved to an unrelated task,
+> followup is harness noise (`/exit`, `/clear`, `<local-command-caveat>`).
+>
+> Candidates (full JSON):
+>
+> ```json
+> <PASTE BATCH HERE>
+> ```
+>
+> For each candidate: read its `followups`. If ambiguous, open `jsonl_path`
+> and read surrounding events. Return ONLY a JSON array matching this schema
+> (no prose, no markdown fence): {{schema described above}}. One object per
+> input candidate, same order.
+
+Collect every subagent's JSON output. Keep only REAL_FAILURE + UNCLEAR verdicts
+in your own context — discard NOT_FAILURE entries entirely.
+
+### Step 2 — Cluster
+
+Group the surviving verdicts by `proximate_cause`. Merge near-duplicate tags.
+One failure mode per cluster. For UNCLEAR cases, decide now based on the
+subagent's `key_quote` + `one_line_reason`; only re-open raw JSONLs yourself if
+a cluster's evidence is too thin to act on.
+
+### Step 3 — Report
+
+For each failure mode (skip clusters with <2 occurrences):
+- Name and short description
+- Count + 2-3 representative `session_id`s with the subagent's `key_quote`
+- Why the skill failed (root cause, not symptom)
+- Concrete proposed improvement to the skill: SKILL.md edit, new trigger,
+  missing pre-flight question, etc. Specific enough that I can apply it.
+
+Be terse. Quote evidence from `key_quote` fields. Do not re-read candidate
+followups yourself — trust the subagents' triage unless a cluster looks wrong.
 """
 
 def _extract_user_messages(jsonl_path: pathlib.Path) -> list[dict]:
@@ -227,6 +274,7 @@ def write_investigation(
     skill: str,
     projects_root: pathlib.Path,
     window: int = 5,
+    batch_size: int = 5,
 ) -> dict:
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -264,6 +312,7 @@ def write_investigation(
         n_candidates=len(records),
         cwd=os.getcwd(),
         skill_locations=skill_locations,
+        batch_size=batch_size,
     )
     prompt_path.write_text(prompt)
     return {

@@ -1,0 +1,78 @@
+<h2>How should the failure-mode report look?</h2>
+<p class="subtitle">Read-only HTML page. Goal: a human can quickly tell a <strong>real</strong> improvement point from a weak one. Pick a direction — I'll then render a full mockup with sample data.</p>
+
+<style>
+  .wire { background:#fff; border:1px solid #ddd; border-radius:6px; padding:8px; font-size:11px; color:#444; }
+  .wire .bar { height:8px; background:#e6e6e6; border-radius:3px; margin:4px 0; }
+  .wire .pill { display:inline-block; font-size:9px; padding:1px 6px; border-radius:8px; color:#fff; }
+  .wire .hi { background:#c0392b; } .wire .med { background:#e67e22; } .wire .lo { background:#95a5a6; }
+  .wire .row { display:flex; align-items:center; gap:6px; padding:3px 0; border-bottom:1px solid #f0f0f0; }
+  .wire .panecol { display:flex; gap:6px; }
+  .wire .left { width:38%; border-right:1px solid #eee; padding-right:6px; }
+  .wire .quote { border-left:3px solid #ddd; padding-left:6px; color:#777; font-style:italic; }
+</style>
+
+<div class="cards">
+  <div class="card" data-choice="cards" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:10px;">
+      <div class="wire">
+        <div><span class="pill hi">STRONG</span> &nbsp;Missing severity labels &nbsp;<strong>×8</strong></div>
+        <div class="bar" style="width:90%"></div>
+        <div class="quote">"you didn't say which are blocking"</div>
+        <div style="background:#eef7ee;border-radius:4px;padding:4px;margin-top:4px;">FIX: add severity rubric to SKILL.md</div>
+      </div>
+      <div class="wire" style="margin-top:6px;opacity:.7;">
+        <div><span class="pill lo">WEAK</span> &nbsp;Reviews extra files &nbsp;<strong>×2</strong></div>
+        <div class="bar" style="width:25%"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · Signal-strength card list</h3>
+      <p>One card per failure mode, sorted strongest-first. Confidence pill + count badge + evidence quotes + proposed fix. Weak ones visually dimmed. Skim top-to-bottom.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="table" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:10px;">
+      <div class="wire">
+        <div class="row"><span class="pill hi">8</span> Missing severity labels <span style="margin-left:auto;color:#999">clarify ▸</span></div>
+        <div class="row"><span class="pill med">5</span> No claim verification <span style="margin-left:auto;color:#999">▸</span></div>
+        <div class="row"><span class="pill lo">2</span> Reviews extra files <span style="margin-left:auto;color:#999">▸</span></div>
+        <div style="background:#f7f7f7;padding:6px;margin-top:4px;border-radius:4px;">
+          <div class="quote">"you didn't say which are blocking"</div>
+          <div style="margin-top:3px;">FIX: add severity rubric…</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · Dense table + drill-in</h3>
+      <p>Compact sortable rows (count, confidence, name). Click a row to expand its evidence + fix below. Most data-dense; best when there are many failure modes.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="twopane" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:10px;">
+      <div class="wire">
+        <div class="panecol">
+          <div class="left">
+            <div class="row" style="background:#eef;border-radius:3px;"><span class="pill hi">8</span> Severity</div>
+            <div class="row"><span class="pill med">5</span> Verify</div>
+            <div class="row"><span class="pill lo">2</span> Scope</div>
+          </div>
+          <div style="flex:1">
+            <strong>Missing severity labels</strong>
+            <div class="bar" style="width:85%"></div>
+            <div class="quote">"which are blocking?"</div>
+            <div style="background:#eef7ee;border-radius:4px;padding:4px;margin-top:4px;">FIX…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C · Two-pane (list + detail)</h3>
+      <p>Left rail lists all modes; right pane shows full detail of the selected one. Email-client feel. Good for deep reading one at a time, less for skimming all at once.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px;">My recommendation: <strong>A</strong> — for a read-only "is this real?" judgment, a strongest-first scannable list with the evidence inline beats hiding evidence behind clicks.</p>

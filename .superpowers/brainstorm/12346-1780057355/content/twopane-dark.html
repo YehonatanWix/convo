@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Failure-mode report — dark</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161c2b; --panel2:#1b2233; --rail:#131927;
+    --line:#283143; --text:#e6eaf2; --muted:#8b97ad; --faint:#5d6885;
+    --accent:#5b8cff; --accent-soft:#1f2c4d;
+    --hi:#e5484d; --med:#e6914a; --lo:#6b7689;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px;}
+  h1{font-size:18px;margin:0 0 2px;}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 18px;}
+  .app{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;
+    background:var(--panel);min-height:460px;}
+  .rail{width:34%;border-right:1px solid var(--line);background:var(--rail);overflow:auto;}
+  .meta{padding:12px 14px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted);}
+  .meta strong{color:var(--text);font-size:14px;}
+  .item{padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer;
+    display:flex;align-items:center;gap:10px;transition:background .12s;}
+  .item:hover{background:var(--panel2);}
+  .item.sel{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent);}
+  .cnt{font-weight:700;min-width:24px;text-align:center;border-radius:11px;color:#fff;
+    padding:2px 7px;font-size:11px;}
+  .c-hi{background:var(--hi)} .c-med{background:var(--med)} .c-lo{background:var(--lo)}
+  .nm{flex:1;}
+  .conf{font-size:10px;color:var(--faint);margin-top:2px;}
+  .detail{flex:1;padding:20px 24px;overflow:auto;}
+  .detail h3{margin:0 0 8px;font-size:16px;}
+  .tags{margin:6px 0 16px;}
+  .tag{display:inline-block;font-size:10px;padding:3px 9px;border-radius:11px;margin-right:6px;
+    border:1px solid var(--line);}
+  .tag.conf-hi{background:rgba(229,72,77,.15);color:#ff8d90;border-color:rgba(229,72,77,.35)}
+  .tag.conf-med{background:rgba(230,145,74,.15);color:#f3b27a;border-color:rgba(230,145,74,.35)}
+  .tag.conf-lo{background:rgba(107,118,137,.18);color:#aab4c8;border-color:var(--line)}
+  .tag.cause{background:rgba(91,140,255,.14);color:#9db8ff;border-color:rgba(91,140,255,.3)}
+  .lab{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--faint);
+    margin:18px 0 7px;}
+  .cause-box{color:var(--text);}
+  .quote{border-left:3px solid var(--accent);background:var(--panel2);padding:9px 12px;
+    margin:7px 0;color:#d3dbea;border-radius:0 6px 6px 0;}
+  .quote .src{display:block;font-size:10px;color:var(--faint);margin-top:5px;}
+  .fix{background:rgba(91,140,255,.08);border:1px solid rgba(91,140,255,.28);border-radius:8px;
+    padding:13px 15px;color:var(--text);}
+  .fix code{background:var(--accent-soft);padding:1px 5px;border-radius:4px;color:#bcd0ff;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Failure-mode report</h1>
+  <p class="sub">Click a mode in the left rail to see its evidence. Read-only — judge real vs. noise from the evidence quotes, count, and strength.</p>
+  <div class="app">
+    <div class="rail" id="rail">
+      <div class="meta"><strong>code-review</strong><br>27 invocations · 9 real failures · 4 modes<br>generated 2026-05-29</div>
+    </div>
+    <div class="detail" id="detail"></div>
+  </div>
+</div>
+
+<script>
+const MODES = [
+  { id:0, name:"No severity / blocking labels", conf:"hi", count:8, cause:"missing-output-spec",
+    desc:"Review output lists findings flat, with no marking of which are blocking vs nits. User repeatedly has to ask which matter.",
+    quotes:[
+      {t:"ok but which of these are actually blocking the merge?", s:"sess 4a91… · 2026-04-12"},
+      {t:"you're mixing typos with real bugs, please rank them", s:"sess 7c02… · 2026-05-02"},
+      {t:"is the null deref one a must-fix or a maybe?", s:"sess b1f8… · 2026-05-19"} ],
+    fix:"Add an output-format section to SKILL.md requiring each finding be tagged <code>[BLOCKING]</code> / <code>[NIT]</code> with a one-line severity rubric." },
+  { id:1, name:"Doesn't verify its own claims", conf:"med", count:5, cause:"no-verification-step",
+    desc:"Skill asserts a bug exists without reading enough surrounding code; user corrects it that the code path is unreachable or already handled.",
+    quotes:[
+      {t:"that branch can't run, there's a guard 3 lines up", s:"sess 22de… · 2026-04-28"},
+      {t:"no, that's handled in the caller, look again", s:"sess 9f10… · 2026-05-15"} ],
+    fix:"Add a pre-report verification gate: before reporting a bug, the skill must quote the exact lines and confirm reachability." },
+  { id:2, name:"Reviews files not in the diff", conf:"med", count:4, cause:"scope-creep",
+    desc:"Skill comments on files outside the requested change set, producing noise the user didn't ask for.",
+    quotes:[
+      {t:"I only asked about the auth module, ignore the rest", s:"sess 51aa… · 2026-05-06"} ],
+    fix:"Add a scope pre-flight: confirm the review target (diff / paths) before starting; default to staged diff only." },
+  { id:3, name:"Over-long preamble before findings", conf:"lo", count:2, cause:"verbosity",
+    desc:"Restates the task and methodology at length before getting to findings.",
+    quotes:[
+      {t:"skip the intro, just give me the issues", s:"sess 0b7c… · 2026-05-21"} ],
+    fix:"Add 'lead with findings, no preamble' to the skill's style guidance." },
+];
+const LBL={hi:'strong',med:'moderate',lo:'weak'};
+const rail=document.getElementById('rail'),detail=document.getElementById('detail');
+MODES.forEach(m=>{
+  const el=document.createElement('div');
+  el.className='item';el.dataset.id=m.id;
+  el.innerHTML=`<span class="cnt c-${m.conf}">${m.count}</span>
+    <span class="nm">${m.name}<div class="conf">${LBL[m.conf]} evidence</div></span>`;
+  el.onclick=()=>select(m.id);
+  rail.appendChild(el);
+});
+function select(id){
+  const m=MODES[id];
+  document.querySelectorAll('.item').forEach(i=>i.classList.toggle('sel',+i.dataset.id===id));
+  detail.innerHTML=`
+    <h3>${m.name}</h3>
+    <div class="tags">
+      <span class="tag conf-${m.conf}">${LBL[m.conf]} evidence · ${m.count} occurrences</span>
+      <span class="tag cause">${m.cause}</span>
+    </div>
+    <div class="lab">Root cause</div><div class="cause-box">${m.desc}</div>
+    <div class="lab">Evidence — representative user quotes</div>
+    ${m.quotes.map(q=>`<div class="quote">"${q.t}"<span class="src">${q.s}</span></div>`).join('')}
+    <div class="lab">Proposed improvement</div>
+    <div class="fix">${m.fix}</div>`;
+}
+select(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<h2>Two-pane report — full mockup</h2>
+<p class="subtitle">Sample data for the <code>code-review</code> skill. Left rail = all failure modes (strongest first). Click one → right pane shows its evidence. Tell me what's missing or wrong.</p>
+
+<style>
+  .app { display:flex; border:1px solid #ddd; border-radius:8px; overflow:hidden; background:#fff; min-height:440px; font-size:13px; }
+  .rail { width:34%; border-right:1px solid #eee; background:#fafafa; overflow:auto; }
+  .meta { padding:10px 12px; border-bottom:1px solid #eee; font-size:11px; color:#777; background:#f3f3f3; }
+  .meta strong { color:#333; font-size:13px; }
+  .item { padding:10px 12px; border-bottom:1px solid #f0f0f0; cursor:pointer; display:flex; align-items:center; gap:8px; }
+  .item:hover { background:#f0f3f8; }
+  .item.sel { background:#e8eefc; box-shadow:inset 3px 0 0 #3b6cf0; }
+  .cnt { font-weight:700; min-width:22px; text-align:center; border-radius:10px; color:#fff; padding:1px 6px; font-size:11px; }
+  .c-hi{background:#c0392b}.c-med{background:#e67e22}.c-lo{background:#95a5a6}
+  .nm { flex:1; }
+  .conf { font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:#999; }
+  .detail { flex:1; padding:18px 22px; overflow:auto; }
+  .detail h3 { margin:0 0 4px; }
+  .tags { margin:6px 0 14px; }
+  .tag { display:inline-block; font-size:10px; padding:2px 8px; border-radius:10px; margin-right:6px; }
+  .tag.conf-hi{background:#fdecea;color:#c0392b} .tag.conf-med{background:#fdf1e3;color:#b9651a}
+  .tag.cause{background:#eef;color:#3b3b8f}
+  .lab { font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:#999; margin:16px 0 6px; }
+  .quote { border-left:3px solid #c9d4f0; background:#f7f9ff; padding:8px 10px; margin:6px 0; color:#444; }
+  .quote .src { display:block; font-size:10px; color:#aaa; margin-top:4px; font-style:normal; }
+  .fix { background:#eef7ee; border:1px solid #cfe6cf; border-radius:6px; padding:12px 14px; }
+  .fix code { background:#dcefdc; padding:1px 4px; border-radius:3px; }
+  .cause-box { color:#555; }
+</style>
+
+<div class="app">
+  <div class="rail" id="rail">
+    <div class="meta"><strong>code-review</strong><br>27 invocations · 9 real failures · 4 modes<br>generated 2026-05-29</div>
+  </div>
+  <div class="detail" id="detail"></div>
+</div>
+
+<script>
+const MODES = [
+  { id:0, name:"No severity / blocking labels", conf:"hi", count:8, cause:"missing-output-spec",
+    desc:"Review output lists findings flat, with no marking of which are blocking vs nits. User repeatedly has to ask which matter.",
+    quotes:[
+      {t:"ok but which of these are actually blocking the merge?", s:"sess 4a91… · 2026-04-12"},
+      {t:"you're mixing typos with real bugs, please rank them", s:"sess 7c02… · 2026-05-02"},
+      {t:"is the null deref one a must-fix or a maybe?", s:"sess b1f8… · 2026-05-19"} ],
+    fix:"Add an output-format section to SKILL.md requiring each finding be tagged <code>[BLOCKING]</code> / <code>[NIT]</code> with a one-line severity rubric." },
+  { id:1, name:"Doesn't verify its own claims", conf:"med", count:5, cause:"no-verification-step",
+    desc:"Skill asserts a bug exists without reading enough surrounding code; user corrects it that the code path is unreachable or already handled.",
+    quotes:[
+      {t:"that branch can't run, there's a guard 3 lines up", s:"sess 22de… · 2026-04-28"},
+      {t:"no, that's handled in the caller, look again", s:"sess 9f10… · 2026-05-15"} ],
+    fix:"Add a pre-report verification gate: before reporting a bug, the skill must quote the exact lines and confirm reachability." },
+  { id:2, name:"Reviews files not in the diff", conf:"med", count:4, cause:"scope-creep",
+    desc:"Skill comments on files outside the requested change set, producing noise the user didn't ask for.",
+    quotes:[
+      {t:"I only asked about the auth module, ignore the rest", s:"sess 51aa… · 2026-05-06"} ],
+    fix:"Add a scope pre-flight: confirm the review target (diff / paths) before starting; default to staged diff only." },
+  { id:3, name:"Over-long preamble before findings", conf:"lo", count:2, cause:"verbosity",
+    desc:"Restates the task and methodology at length before getting to findings.",
+    quotes:[
+      {t:"skip the intro, just give me the issues", s:"sess 0b7c… · 2026-05-21"} ],
+    fix:"Add 'lead with findings, no preamble' to the skill's style guidance." },
+];
+
+const rail = document.getElementById('rail'), detail = document.getElementById('detail');
+MODES.forEach(m => {
+  const el = document.createElement('div');
+  el.className = 'item'; el.dataset.id = m.id;
+  el.innerHTML = `<span class="cnt c-${m.conf}">${m.count}</span>
+    <span class="nm">${m.name}<div class="conf">${({hi:'strong',med:'moderate',lo:'weak'})[m.conf]} evidence</div></span>`;
+  el.onclick = () => select(m.id);
+  rail.appendChild(el);
+});
+function select(id){
+  const m = MODES[id];
+  document.querySelectorAll('.item').forEach(i => i.classList.toggle('sel', +i.dataset.id===id));
+  detail.innerHTML = `
+    <h3>${m.name}</h3>
+    <div class="tags">
+      <span class="tag conf-${m.conf}">${({hi:'strong',med:'moderate',lo:'weak'})[m.conf]} evidence · ${m.count} occurrences</span>
+      <span class="tag cause">${m.cause}</span>
+    </div>
+    <div class="lab">Root cause</div><div class="cause-box">${m.desc}</div>
+    <div class="lab">Evidence — representative user quotes</div>
+    ${m.quotes.map(q=>`<div class="quote">"${q.t}"<span class="src">${q.s}</span></div>`).join('')}
+    <div class="lab">Proposed improvement</div>
+    <div class="fix">${m.fix}</div>`;
+}
+select(0);
+</script>
