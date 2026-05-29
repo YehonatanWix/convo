@@ -34,8 +34,10 @@ CREATE TABLE IF NOT EXISTS events (
   cache_creation BIGINT,
   duration_ms BIGINT,
   text_len BIGINT,
+  text_head TEXT,
   blob_hash TEXT
 );
+ALTER TABLE events ADD COLUMN IF NOT EXISTS text_head TEXT;
 
 CREATE TABLE IF NOT EXISTS tool_calls (
   event_id TEXT,

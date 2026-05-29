@@ -52,7 +52,7 @@ def build_token_signals(con: duckdb.DuckDBPyConnection) -> None:
             FROM events e
             JOIN events e2
               ON e2.session_id = e.session_id AND e2.ts < e.ts
-            WHERE e.subtype = 'compaction'
+            WHERE e.subtype IN ('compact_boundary', 'compaction')
         )
         SELECT comp_sid, 5, COALESCE(SUM(output_tokens), 0)
         FROM preceding
@@ -87,12 +87,13 @@ def build_token_signals(con: duckdb.DuckDBPyConnection) -> None:
     for (sid, fp), c in rr_counts.items():
         con.execute("INSERT INTO signal_redundant_reads VALUES (?,?,?)", [sid, fp, c])
 
-    # 4. Oversized agent dispatches: small args, big result
+    # 4. Oversized agent dispatches: short-ish args, much-bigger result.
+    # Note: args_json is truncated to 2048 in parse.py, so the args_len signal
+    # is a lower bound on the real dispatch prompt size.
     con.execute("""
         INSERT INTO signal_oversized_agent
         SELECT session_id, event_id, LENGTH(args_json) AS args_len, result_size
         FROM tool_calls
         WHERE tool_name='Agent'
-          AND LENGTH(args_json) < 500
-          AND result_size > 10000
+          AND result_size > GREATEST(LENGTH(args_json) * 5, 5000)
     """)

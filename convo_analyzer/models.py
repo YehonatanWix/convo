@@ -24,6 +24,7 @@ class NormalizedEvent(BaseModel):
     cache_creation: Optional[int] = None
     duration_ms: Optional[int] = None
     text_len: Optional[int] = None
+    text_head: Optional[str] = None
     blob_hash: Optional[str] = None
 
 class ToolCall(BaseModel):

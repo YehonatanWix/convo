@@ -48,26 +48,26 @@ def build_skill_signals(con: duckdb.DuckDBPyConnection, skills_yaml: pathlib.Pat
                     )
                     break
 
-    # abandoned: skill invocation followed within 3 user turns by a correction
-    rows = con.execute("""
-        SELECT session_id, ts, skill_name FROM skill_invocations
-    """).fetchall()
+    # abandoned: skill invocation followed within 3 user turns by a correction.
+    # Only flag if the user message text actually matches the correction regex.
+    rows = con.execute(
+        "SELECT session_id, ts, skill_name FROM skill_invocations"
+    ).fetchall()
     for sid, ts, skill in rows:
         followups = con.execute("""
-            SELECT type, role, ts FROM events
+            SELECT ts, text_head FROM events
             WHERE session_id=? AND ts > ? AND role='user'
+              AND is_meta=FALSE AND text_head IS NOT NULL
             ORDER BY ts LIMIT 3
         """, [sid, ts]).fetchall()
-        for _t, _r, fts in followups:
-            txt = con.execute("""
-                SELECT 1 FROM events
-                WHERE session_id=? AND ts=? AND text_len IS NOT NULL
-            """, [sid, fts]).fetchone()
-            if txt:
+        for fts, head in followups:
+            m = CORRECTION_RE.match(head or "")
+            if m:
                 con.execute(
                     "INSERT INTO signal_skill_abandoned VALUES (?,?,?,?)",
-                    [sid, skill, fts, "follow-up after skill"],
+                    [sid, skill, fts, (head or "")[:120]],
                 )
+                break  # one hit per invocation is enough
 
     # turnaround: tokens between skill invocation and next user msg
     con.execute("""

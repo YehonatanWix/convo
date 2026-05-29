@@ -170,6 +170,32 @@ def blob(blob_hash: str) -> None:
     typer.echo(store.get(blob_hash))
 
 
+@app.command("investigate-skill")
+def investigate_skill(
+    skill_name: str,
+    window: int = typer.Option(5, "--window", help="User messages to capture after each invocation."),
+    print_only: bool = typer.Option(False, "--print", help="Don't launch claude, just print the command."),
+) -> None:
+    """Find failure modes for a skill: launch Claude Code to analyze every invocation."""
+    from .investigate import write_investigation
+    out = write_investigation(
+        db_path=_db_path(),
+        out_dir=_root() / "analysis",
+        skill=skill_name,
+        projects_root=_projects(),
+        window=window,
+    )
+    typer.echo(f"wrote {out['packet_path']} ({out['n_candidates']} invocations)", err=True)
+    typer.echo(f"wrote {out['prompt_path']}", err=True)
+    if out["n_candidates"] == 0:
+        typer.echo(f"no invocations of '{skill_name}' found in corpus", err=True)
+        raise typer.Exit(1)
+    if print_only:
+        typer.echo("\nrun:  claude \"$(cat " + str(out["prompt_path"]) + ")\"")
+        return
+    os.execvp("claude", ["claude", out["prompt"]])
+
+
 @app.command()
 def interpret(
     print_only: bool = typer.Option(

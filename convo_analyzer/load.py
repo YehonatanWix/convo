@@ -38,11 +38,13 @@ def load_session(
 
     for ev in parsed.events:
         con.execute(
-            "INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [ev.event_id, ev.session_id, ev.parent_uuid, ev.ts, ev.type,
              ev.subtype, ev.is_sidechain, ev.is_meta, ev.role,
              ev.input_tokens, ev.output_tokens, ev.cache_read, ev.cache_creation,
-             ev.duration_ms, ev.text_len, ev.blob_hash],
+             ev.duration_ms, ev.text_len,
+             scrub(ev.text_head) if ev.text_head else None,
+             ev.blob_hash],
         )
 
     for tc in parsed.tool_calls:

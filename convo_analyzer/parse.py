@@ -108,6 +108,7 @@ def parse_session_file(path: pathlib.Path) -> ParsedSession:
             cache_creation=cc,
             duration_ms=raw.get("durationMs"),
             text_len=len(text_payload) if text_payload else None,
+            text_head=text_payload[:240] if text_payload else None,
         )
         events.append(ev)
         if etype in ("user", "assistant"):
