@@ -11,6 +11,15 @@ PROMPT_TEMPLATE = """You are investigating failure modes of the `{skill}` skill 
 Claude Code conversation history. The pipeline has already located every invocation
 of this skill and gathered the user messages that followed each one.
 
+## The skill itself
+
+{skill_locations}
+
+Read the skill's SKILL.md before judging — proposed improvements should be
+edits you could apply to that exact file.
+
+## Failure mode definition
+
 A failure mode is defined as: the skill was invoked to do a task, then within the
 next few messages the user interrupted or had to redirect/correct the skill's
 guidance. Examples include corrections ("no", "stop", "actually", "wait", "don't"),
@@ -175,6 +184,36 @@ def _is_exit(text: str) -> bool:
     return "<command-name>/exit</command-name>" in (text or "")
 
 
+def find_skill_files(
+    skill_name: str,
+    extra_roots: list[pathlib.Path] | None = None,
+) -> list[pathlib.Path]:
+    """Find SKILL.md files for `skill_name` under ~/.claude plus any extra roots.
+
+    Plugin-namespaced names like `superpowers:brainstorming` match the suffix
+    (`brainstorming`). Multiple matches are possible (e.g. user skill + plugin
+    skill + project-local skill of the same name).
+
+    `extra_roots` are typically project directories — we search both `<root>` and
+    `<root>/.claude` so callers can pass either form.
+    """
+    suffix = skill_name.split(":", 1)[-1]
+    roots: list[pathlib.Path] = [pathlib.Path.home() / ".claude"]
+    for r in extra_roots or []:
+        r = pathlib.Path(r).expanduser()
+        roots.append(r)
+        if (r / ".claude").exists():
+            roots.append(r / ".claude")
+    found: set[pathlib.Path] = set()
+    for root in roots:
+        if not root.exists():
+            continue
+        for p in root.rglob("SKILL.md"):
+            if p.parent.name == suffix:
+                found.add(p)
+    return sorted(found)
+
+
 def _jsonl_path_for(projects_root: pathlib.Path, cwd: str, session_id: str) -> pathlib.Path:
     """Reverse the encoded-cwd directory naming used by Claude Code."""
     raw_cwd = cwd.replace("~", str(pathlib.Path.home()), 1) if cwd.startswith("~") else cwd
@@ -196,12 +235,35 @@ def write_investigation(
 
     records = build_investigation(db_path, skill, projects_root, window=window)
     packet_path.write_text(json.dumps(records, indent=2))
+
+    candidate_cwds: list[pathlib.Path] = []
+    seen_cwds: set[str] = set()
+    for r in records:
+        # records carry jsonl_path under ~/.claude/projects; the original cwd is
+        # encoded in its parent dir name. Reconstruct it.
+        encoded = pathlib.Path(r["jsonl_path"]).parent.name
+        raw = "/" + encoded.lstrip("-").replace("-", "/")
+        if raw not in seen_cwds:
+            seen_cwds.add(raw)
+            candidate_cwds.append(pathlib.Path(raw))
+    skill_paths = find_skill_files(skill, extra_roots=candidate_cwds)
+    if skill_paths:
+        skill_locations = "The skill's SKILL.md file(s):\n" + "\n".join(
+            f"  - {p}" for p in skill_paths
+        )
+    else:
+        skill_locations = (
+            f"No SKILL.md found for `{skill}` under ~/.claude. The skill may be "
+            "user-typed slash text without a backing file; treat it as an alias."
+        )
+
     prompt = PROMPT_TEMPLATE.format(
         skill=skill,
         packet_path=packet_path.resolve(),
         window=window,
         n_candidates=len(records),
         cwd=os.getcwd(),
+        skill_locations=skill_locations,
     )
     prompt_path.write_text(prompt)
     return {
