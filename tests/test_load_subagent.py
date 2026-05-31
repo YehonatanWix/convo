@@ -37,3 +37,19 @@ def test_load_persists_subagent_fields(tmp_path):
         ("agent-1", "parent-1", True),
         ("parent-1", None, False),
     ]
+
+
+def test_reopen_db_preserves_is_subagent(tmp_path):
+    """DuckDB ADD COLUMN IF NOT EXISTS ... DEFAULT FALSE resets existing values
+    on re-execution. open_db re-runs schema.sql on every call (e.g. CLI ingest
+    opens the DB twice — once during ingest_all, once for derive steps), so any
+    DEFAULT on is_subagent would silently zero out subagent flags."""
+    db = tmp_path / "corpus.db"
+    con = open_db(db)
+    load_session(con, _row("agent-1", parent_session_id="parent-1", is_subagent=True))
+    con.close()
+    con = open_db(db)
+    row = con.execute(
+        "SELECT is_subagent FROM sessions WHERE session_id = 'agent-1'"
+    ).fetchone()
+    assert row == (True,)
