@@ -65,3 +65,5 @@ class SessionRow(BaseModel):
     compaction_count: int = 0
     model: Optional[str] = None
     ai_title: Optional[str] = None
+    parent_session_id: Optional[str] = None
+    is_subagent: bool = False

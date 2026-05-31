@@ -128,13 +128,26 @@ def session(
     tools_only: bool = typer.Option(
         False, "--tools-only", help="Show only tool-call rows."
     ),
+    with_subagents: bool = typer.Option(
+        False, "--with-subagents", help="Include events from subagent sessions spawned by this session."
+    ),
 ) -> None:
     """Print a timeline of one session: flow, tokens, and pointers to full content."""
     con = duckdb.connect(str(_db_path()))
-    rows = con.execute(queries.SESSION_TIMELINE, [session_id]).fetchall()
+    if with_subagents:
+        rows = con.execute(
+            queries.SESSION_TIMELINE_WITH_SUBAGENTS, [session_id, session_id]
+        ).fetchall()
+    else:
+        rows = con.execute(queries.SESSION_TIMELINE, [session_id]).fetchall()
 
     table: list[tuple] = []
-    for ts, etype, role, tool, out_tok, dur_ms, tlen, head, blob in rows:
+    for row in rows:
+        if with_subagents:
+            ts, etype, role, tool, out_tok, dur_ms, tlen, head, blob, src_session = row
+        else:
+            ts, etype, role, tool, out_tok, dur_ms, tlen, head, blob = row
+            src_session = session_id
         if tools_only and not tool:
             continue
         if not verbose and not tool and etype in queries.SESSION_TIMELINE_NOISE_TYPES:
@@ -142,23 +155,46 @@ def session(
         snippet = " ".join((head or "").split())
         if len(snippet) > 60:
             snippet = snippet[:57] + "..."
-        table.append((
-            (ts or "")[11:19] or "-",                      # HH:MM:SS
+        cols = [
+            (ts or "")[11:19] or "-",
             tool or etype,
             role or "-",
             out_tok or "-",
             dur_ms or "-",
             tlen or 0,
             (blob or "-")[:12],
-            snippet or "-",
-        ))
+        ]
+        if with_subagents:
+            cols.append(src_session[:8] if src_session else "-")
+        cols.append(snippet or "-")
+        table.append(tuple(cols))
 
     if not table:
         typer.echo("(no rows)")
         return
+    if with_subagents:
+        _print_table(
+            ["time", "event", "role", "out_tok", "dur_ms", "len", "blob", "from", "head"],
+            table,
+        )
+    else:
+        _print_table(
+            ["time", "event", "role", "out_tok", "dur_ms", "len", "blob", "head"],
+            table,
+        )
+
+
+@app.command()
+def subagents(parent_session_id: str) -> None:
+    """List subagent sessions spawned by a parent session."""
+    con = duckdb.connect(str(_db_path()))
+    rows = con.execute(queries.SUBAGENTS_FOR_PARENT, [parent_session_id]).fetchall()
+    if not rows:
+        typer.echo("(no subagents)")
+        return
     _print_table(
-        ["time", "event", "role", "out_tok", "dur_ms", "len", "blob", "head"],
-        table,
+        ["session_id", "started_at", "ended_at", "ai_title", "tool_calls"],
+        rows,
     )
 
 @app.command()
@@ -288,7 +324,8 @@ unchanged sessions are skipped, so it's safe to re-run.
 ## Key tables
 
 - `sessions` — one row per session: project, timing, token totals, model,
-  compaction_count, ai_title.
+  compaction_count, ai_title, plus `is_subagent` and `parent_session_id`
+  (NULL for top-level sessions; set for subagent conversations).
 - `events` — every message/turn. Important columns: `ts`, `type`, `role`,
   `input_tokens`, `output_tokens`, `text_len`, `text_head`, `blob_hash`.
 - `tool_calls` — every tool invocation, with `tool_name`, `args_json`,
@@ -299,6 +336,34 @@ unchanged sessions are skipped, so it's safe to re-run.
 - `tool_sequences` — n-grams of consecutive tool calls per session.
 - `signal_*` views — derived signals: `signal_bloat`, `signal_recurring_sequences`,
   `signal_skill_abandoned`, `signal_skill_turnaround`, plus token signals.
+
+## Subagents
+
+Slash commands like `/code-review` dispatch a subagent — a separate Claude
+conversation that runs the actual work and pipes its final output back into
+the parent session as `<local-command-stdout>`. Their JSONLs live at
+`<projects-root>/<project-dir>/<parent-session-id>/subagents/agent-*.jsonl`
+and are ingested as their own `sessions` rows with:
+
+- `is_subagent = TRUE`
+- `parent_session_id = <parent session_id>`
+- `project` inherited from the parent (not `"subagents"`)
+
+If you query a parent session's tool calls directly, you will NOT see
+subagent activity. To roll subagent activity up:
+
+- `convo subagents <parent_session_id>` — list child subagents.
+- `convo session <parent_session_id> --with-subagents` — timeline that
+  includes events from all children.
+- In SQL, join via `parent_session_id`:
+
+  ```sql
+  SELECT tool_name, COUNT(*)
+  FROM tool_calls tc
+  JOIN sessions s USING (session_id)
+  WHERE s.session_id = :id OR s.parent_session_id = :id
+  GROUP BY 1 ORDER BY 2 DESC;
+  ```
 
 ## Investigation tips
 

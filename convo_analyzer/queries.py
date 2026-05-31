@@ -44,3 +44,34 @@ SESSION_TIMELINE_NOISE_TYPES = (
     "last-prompt",
     "attachment",
 )
+
+SESSION_TIMELINE_WITH_SUBAGENTS = """
+SELECT
+    e.ts,
+    e.type,
+    e.role,
+    tc.tool_name,
+    e.output_tokens,
+    e.duration_ms,
+    e.text_len,
+    e.text_head,
+    COALESCE(e.blob_hash, tc.result_blob_hash, tc.args_blob_hash) AS blob_hash,
+    e.session_id
+FROM events e
+LEFT JOIN tool_calls tc USING (event_id, session_id)
+WHERE e.session_id = ?
+   OR e.session_id IN (SELECT session_id FROM sessions WHERE parent_session_id = ?)
+ORDER BY e.ts
+"""
+
+SUBAGENTS_FOR_PARENT = """
+SELECT
+    s.session_id,
+    s.started_at,
+    s.ended_at,
+    s.ai_title,
+    (SELECT COUNT(*) FROM tool_calls tc WHERE tc.session_id = s.session_id) AS tool_calls
+FROM sessions s
+WHERE s.parent_session_id = ?
+ORDER BY s.started_at
+"""

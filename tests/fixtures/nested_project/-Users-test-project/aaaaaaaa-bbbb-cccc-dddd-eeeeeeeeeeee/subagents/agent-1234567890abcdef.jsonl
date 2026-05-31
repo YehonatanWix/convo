@@ -1,0 +1,2 @@
+{"type":"assistant","timestamp":"2026-05-29T16:01:00Z","uuid":"a1","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"LSP","input":{"action":"refs"}}]}}
+{"type":"user","timestamp":"2026-05-29T16:01:01Z","uuid":"a2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"ok"}]}}

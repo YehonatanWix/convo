@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-05-29T16:00:00Z","uuid":"p1","message":{"role":"user","content":"/code-review http://example/pr/1"}}
+{"type":"user","timestamp":"2026-05-29T16:02:00Z","uuid":"p2","message":{"role":"user","content":"<local-command-stdout>review result</local-command-stdout>"}}
