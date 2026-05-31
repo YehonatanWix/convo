@@ -21,9 +21,26 @@ SELECT
 """
 
 SESSION_TIMELINE = """
-SELECT ts, type, role, tool_name, text_len
+SELECT
+    e.ts,
+    e.type,
+    e.role,
+    tc.tool_name,
+    e.output_tokens,
+    e.duration_ms,
+    e.text_len,
+    e.text_head,
+    COALESCE(e.blob_hash, tc.result_blob_hash, tc.args_blob_hash) AS blob_hash
 FROM events e
 LEFT JOIN tool_calls tc USING (event_id, session_id)
 WHERE e.session_id = ?
 ORDER BY e.ts
 """
+
+# Housekeeping event types that carry no analytical content; hidden unless --verbose.
+SESSION_TIMELINE_NOISE_TYPES = (
+    "permission-mode",
+    "file-history-snapshot",
+    "last-prompt",
+    "attachment",
+)

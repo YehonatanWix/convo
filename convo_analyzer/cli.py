@@ -120,12 +120,46 @@ def skill_health(name: str) -> None:
     typer.echo(f"invocations={row[0]} abandoned={row[1]} avg_turnaround_tokens={row[2]}")
 
 @app.command()
-def session(session_id: str) -> None:
+def session(
+    session_id: str,
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Include housekeeping rows (permission-mode, snapshots, etc.)."
+    ),
+    tools_only: bool = typer.Option(
+        False, "--tools-only", help="Show only tool-call rows."
+    ),
+) -> None:
+    """Print a timeline of one session: flow, tokens, and pointers to full content."""
     con = duckdb.connect(str(_db_path()))
-    for ts, etype, role, tool, tlen in con.execute(
-        queries.SESSION_TIMELINE, [session_id]
-    ).fetchall():
-        typer.echo(f"{ts} {etype:<10} {role or '-':<10} {tool or '-':<20} len={tlen or 0}")
+    rows = con.execute(queries.SESSION_TIMELINE, [session_id]).fetchall()
+
+    table: list[tuple] = []
+    for ts, etype, role, tool, out_tok, dur_ms, tlen, head, blob in rows:
+        if tools_only and not tool:
+            continue
+        if not verbose and not tool and etype in queries.SESSION_TIMELINE_NOISE_TYPES:
+            continue
+        snippet = " ".join((head or "").split())
+        if len(snippet) > 60:
+            snippet = snippet[:57] + "..."
+        table.append((
+            (ts or "")[11:19] or "-",                      # HH:MM:SS
+            tool or etype,
+            role or "-",
+            out_tok or "-",
+            dur_ms or "-",
+            tlen or 0,
+            (blob or "-")[:12],
+            snippet or "-",
+        ))
+
+    if not table:
+        typer.echo("(no rows)")
+        return
+    _print_table(
+        ["time", "event", "role", "out_tok", "dur_ms", "len", "blob", "head"],
+        table,
+    )
 
 @app.command()
 def sql(query: str, limit: int = 200) -> None:
@@ -199,6 +233,12 @@ def investigate_skill(
 
 
 @app.command()
+def agents() -> None:
+    """Print a guide that teaches a fresh agent how to use this tool."""
+    typer.echo(AGENT_GUIDE)
+
+
+@app.command()
 def interpret(
     print_only: bool = typer.Option(
         False, "--print", help="Print the command instead of exec'ing claude."
@@ -213,6 +253,77 @@ def interpret(
         typer.echo("\nrun:  claude \"$(cat " + str(out["prompt_path"]) + ")\"")
         return
     os.execvp("claude", ["claude", out["prompt"]])
+
+AGENT_GUIDE = """\
+# convo: agent guide
+
+You are investigating a corpus of Claude Code conversations. The `convo` CLI
+exposes a DuckDB warehouse (`corpus.db`) of parsed sessions, plus blobs for
+large message/tool payloads. Use it to find patterns, failure modes, and
+opportunities for improving skills, prompts, or tooling.
+
+## First run
+
+Before anything else, check whether `corpus.db` exists in `CONVO_ROOT` (default
+`.`). If it's missing — or you suspect it's stale — run `convo ingest`. This
+parses every JSONL session under `CONVO_PROJECTS` (default
+`~/.claude/projects`), loads it into DuckDB, and builds all derived signals
+(`signal_*` views, tool sequences, skill signals). Ingest is incremental:
+unchanged sessions are skipped, so it's safe to re-run.
+
+## Workflow
+
+1. `convo schema` — list tables and columns. Always run this first (after ingest).
+2. `convo sql "SELECT ..."` — read-only SQL against `corpus.db`. Auto-appends
+   LIMIT if missing. Use it to slice the data however you need.
+3. `convo session <session_id>` — print a timeline of one session.
+4. `convo blob <hash>` — read a full message/tool payload by hash. Event and
+   tool_call rows reference blobs via `blob_hash`, `args_blob_hash`,
+   `result_blob_hash`. Heads are stored inline (`text_head`); use blobs when
+   you need the full content.
+5. `convo top-bloat`, `convo recurring-sequences`, `convo skill-health <name>`
+   — prebuilt analyses for common questions.
+6. `convo investigate-skill <name>` — deeper failure-mode hunt for one skill.
+
+## Key tables
+
+- `sessions` — one row per session: project, timing, token totals, model,
+  compaction_count, ai_title.
+- `events` — every message/turn. Important columns: `ts`, `type`, `role`,
+  `input_tokens`, `output_tokens`, `text_len`, `text_head`, `blob_hash`.
+- `tool_calls` — every tool invocation, with `tool_name`, `args_json`,
+  `result_size`, `result_blob_hash`, `success`, `duration_ms`,
+  `position_in_session`. Join via `(event_id, session_id)`.
+- `skill_invocations` — when a skill was invoked, plus `followed_by_tools`
+  (JSON array) showing what the agent did next.
+- `tool_sequences` — n-grams of consecutive tool calls per session.
+- `signal_*` views — derived signals: `signal_bloat`, `signal_recurring_sequences`,
+  `signal_skill_abandoned`, `signal_skill_turnaround`, plus token signals.
+
+## Investigation tips
+
+- Start broad: `convo sql "SELECT project, COUNT(*) FROM sessions GROUP BY 1"`.
+- Sample before reading blobs — blobs are large. Filter to interesting
+  sessions first, then drill in.
+- Tool args/results above a size threshold live in blobs; small content is
+  inline in `text_head` / `args_json`.
+- To trace a single conversation: `convo session <id>` for the timeline, then
+  `convo blob <hash>` for any payload you want in full.
+- For skill questions, `skill_invocations.followed_by_tools` tells you what
+  Claude actually did after the skill triggered — useful for spotting
+  abandoned or misused skills.
+- Cross-session patterns: `tool_sequences` and `signal_recurring_sequences`.
+- Token waste: `signal_bloat` (big tool results that didn't drive much output).
+
+## Environment
+
+- `CONVO_ROOT` — defaults to `.`; holds `corpus.db`, `blobs/`, `manifest.json`,
+  `analysis/`.
+- `CONVO_PROJECTS` — JSONL source dir (default `~/.claude/projects`).
+- SQL is read-only; writes are refused.
+
+Begin by running `convo schema`, then form a hypothesis and query for it.
+"""
 
 if __name__ == "__main__":
     app()
