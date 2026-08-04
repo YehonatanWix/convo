@@ -3,12 +3,15 @@ import json
 import pathlib
 import re
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Iterable, Optional
 
 from .models import NormalizedEvent, ToolCall, SessionRow, SkillInvocation
 
 PROJECT_CWD_RE = re.compile(r"^-Users-[^-]+-(.+)$")
 SLASH_CMD_RE = re.compile(r"^/([a-zA-Z0-9_\-:]+)\b")
+
+SUBAGENT_DIRNAME = "subagents"
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 @dataclass
 class ParsedSession:
@@ -18,8 +21,23 @@ class ParsedSession:
     tool_calls: list[ToolCall] = field(default_factory=list)
     skills: list[SkillInvocation] = field(default_factory=list)
 
+def _is_subagent_path(jsonl_path: pathlib.Path) -> bool:
+    parents = jsonl_path.parents
+    if len(parents) < 3:
+        return False
+    return (
+        parents[0].name == SUBAGENT_DIRNAME
+        and bool(_UUID_RE.match(parents[1].name))
+    )
+
+def _subagent_parent_id(jsonl_path: pathlib.Path) -> Optional[str]:
+    if _is_subagent_path(jsonl_path):
+        return jsonl_path.parents[1].name
+    return None
+
 def _project_slug(jsonl_path: pathlib.Path) -> tuple[str, str]:
-    parent = jsonl_path.parent.name
+    project_dir = jsonl_path.parents[2] if _is_subagent_path(jsonl_path) else jsonl_path.parent
+    parent = project_dir.name
     cwd = "/" + parent.lstrip("-").replace("-", "/")
     cwd = cwd.replace("/Users/yehonatana", "~", 1)
     slug = cwd.rstrip("/").split("/")[-1] or "root"
@@ -47,6 +65,8 @@ def _content_blocks(message: dict) -> list[dict]:
 def parse_session_file(path: pathlib.Path) -> ParsedSession:
     path = pathlib.Path(path)
     project, cwd = _project_slug(path)
+    parent_session_id = _subagent_parent_id(path)
+    is_subagent = parent_session_id is not None
     session_id = path.stem
     events: list[NormalizedEvent] = []
     tool_calls: list[ToolCall] = []
@@ -169,6 +189,8 @@ def parse_session_file(path: pathlib.Path) -> ParsedSession:
         compaction_count=compactions,
         model=model,
         ai_title=ai_title,
+        parent_session_id=parent_session_id,
+        is_subagent=is_subagent,
     )
 
     for sk in skills:

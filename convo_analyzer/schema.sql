@@ -17,6 +17,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   ai_title TEXT,
   ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS parent_session_id TEXT;
+-- NOTE: no DEFAULT clause. DuckDB resets existing values to the default
+-- every time ADD COLUMN IF NOT EXISTS is re-executed against an existing
+-- table, even when the column already exists. is_subagent is always set
+-- explicitly by load_session, so a NULL default is safe.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS is_subagent BOOLEAN;
 
 CREATE TABLE IF NOT EXISTS events (
   event_id TEXT,

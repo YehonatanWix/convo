@@ -28,12 +28,20 @@ def load_session(
 
     s = parsed.session
     con.execute(
-        """INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+        """INSERT INTO sessions (
+            session_id, project, cwd, git_branch,
+            started_at, ended_at, duration_ms, message_count,
+            total_input_tokens, total_output_tokens,
+            total_cache_read_tokens, total_cache_creation_tokens,
+            compaction_count, model, ai_title,
+            parent_session_id, is_subagent, ingested_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
         [s.session_id, s.project, normalize_path(s.cwd), s.git_branch,
          s.started_at, s.ended_at, s.duration_ms, s.message_count,
          s.total_input_tokens, s.total_output_tokens,
          s.total_cache_read_tokens, s.total_cache_creation_tokens,
-         s.compaction_count, s.model, s.ai_title],
+         s.compaction_count, s.model, s.ai_title,
+         s.parent_session_id, s.is_subagent],
     )
 
     for ev in parsed.events:

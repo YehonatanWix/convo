@@ -1,4 +1,4 @@
-from convo_analyzer.models import NormalizedEvent, ToolCall
+from convo_analyzer.models import NormalizedEvent, SessionRow, ToolCall
 
 def test_event_minimal_user_message():
     e = NormalizedEvent(
@@ -16,3 +16,18 @@ def test_tool_call_position_required():
     )
     assert t.tool_name == "Read"
     assert t.result_blob_hash is None
+
+
+def test_session_row_subagent_fields_default():
+    s = SessionRow(session_id="x", project="p", cwd="/p")
+    assert s.parent_session_id is None
+    assert s.is_subagent is False
+
+
+def test_session_row_subagent_fields_set():
+    s = SessionRow(
+        session_id="agent-1", project="p", cwd="/p",
+        parent_session_id="parent-uuid", is_subagent=True,
+    )
+    assert s.parent_session_id == "parent-uuid"
+    assert s.is_subagent is True
