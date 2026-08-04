@@ -242,17 +242,21 @@ def blob(blob_hash: str) -> None:
 
 @app.command("investigate-skill")
 def investigate_skill(
-    skill_name: str,
+    skill_path: pathlib.Path = typer.Argument(..., help="Path to the skill's SKILL.md file."),
     window: int = typer.Option(5, "--window", help="User messages to capture after each invocation."),
     batch_size: int = typer.Option(5, "--batch-size", help="Candidates per triage subagent batch."),
     print_only: bool = typer.Option(False, "--print", help="Don't launch claude, just print the command."),
 ) -> None:
     """Find failure modes for a skill: launch Claude Code to analyze every invocation."""
     from .investigate import write_investigation
+    skill_path = skill_path.expanduser().resolve()
+    if not skill_path.is_file():
+        typer.echo(f"not a file: {skill_path}", err=True)
+        raise typer.Exit(2)
     out = write_investigation(
         db_path=_db_path(),
         out_dir=_root() / "analysis",
-        skill=skill_name,
+        skill_path=skill_path,
         projects_root=_projects(),
         window=window,
         batch_size=batch_size,
@@ -260,7 +264,7 @@ def investigate_skill(
     typer.echo(f"wrote {out['packet_path']} ({out['n_candidates']} invocations)", err=True)
     typer.echo(f"wrote {out['prompt_path']}", err=True)
     if out["n_candidates"] == 0:
-        typer.echo(f"no invocations of '{skill_name}' found in corpus", err=True)
+        typer.echo(f"no invocations of '{out['skill']}' found in corpus", err=True)
         raise typer.Exit(1)
     if print_only:
         typer.echo("\nrun:  claude \"$(cat " + str(out["prompt_path"]) + ")\"")
@@ -319,7 +323,7 @@ unchanged sessions are skipped, so it's safe to re-run.
    you need the full content.
 5. `convo top-bloat`, `convo recurring-sequences`, `convo skill-health <name>`
    — prebuilt analyses for common questions.
-6. `convo investigate-skill <name>` — deeper failure-mode hunt for one skill.
+6. `convo investigate-skill <path/to/SKILL.md>` — deeper failure-mode hunt for one skill.
 
 ## Key tables
 

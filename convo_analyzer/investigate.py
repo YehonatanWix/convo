@@ -189,21 +189,49 @@ def _extract_invocation_text(jsonl_path: pathlib.Path, ts: str) -> str:
     return ""
 
 
+def skill_name_from_path(skill_path: pathlib.Path) -> str:
+    """Derive the canonical skill name from a SKILL.md path.
+
+    Prefers the `name:` field in the YAML frontmatter; falls back to the
+    parent directory name.
+    """
+    parent = skill_path.parent.name
+    try:
+        text = skill_path.read_text()
+    except OSError:
+        return parent
+    if not text.startswith("---"):
+        return parent
+    _, _, rest = text.partition("---\n")
+    front, _, _ = rest.partition("\n---")
+    for line in front.splitlines():
+        if line.startswith("name:"):
+            return line.split(":", 1)[1].strip()
+    return parent
+
+
 def build_investigation(
     db_path: pathlib.Path,
     skill: str,
     projects_root: pathlib.Path,
     window: int = 5,
 ) -> list[dict]:
-    """Return one record per invocation of `skill`, with full message text."""
+    """Return one record per invocation of `skill`, with full message text.
+
+    Matches both bare (`brainstorming`) and plugin-namespaced
+    (`superpowers:brainstorming`) forms of the skill name.
+    """
+    suffix = skill.split(":", 1)[-1]
     con = duckdb.connect(str(db_path), read_only=True)
     invs = con.execute("""
         SELECT si.session_id, si.ts, s.project, s.cwd
         FROM skill_invocations si
         JOIN sessions s USING (session_id)
         WHERE si.skill_name = ?
+           OR si.skill_name = ?
+           OR si.skill_name LIKE '%:' || ?
         ORDER BY si.ts
-    """, [skill]).fetchall()
+    """, [skill, suffix, suffix]).fetchall()
 
     records: list[dict] = []
     for sid, ts, project, cwd in invs:
@@ -231,36 +259,6 @@ def _is_exit(text: str) -> bool:
     return "<command-name>/exit</command-name>" in (text or "")
 
 
-def find_skill_files(
-    skill_name: str,
-    extra_roots: list[pathlib.Path] | None = None,
-) -> list[pathlib.Path]:
-    """Find SKILL.md files for `skill_name` under ~/.claude plus any extra roots.
-
-    Plugin-namespaced names like `superpowers:brainstorming` match the suffix
-    (`brainstorming`). Multiple matches are possible (e.g. user skill + plugin
-    skill + project-local skill of the same name).
-
-    `extra_roots` are typically project directories — we search both `<root>` and
-    `<root>/.claude` so callers can pass either form.
-    """
-    suffix = skill_name.split(":", 1)[-1]
-    roots: list[pathlib.Path] = [pathlib.Path.home() / ".claude"]
-    for r in extra_roots or []:
-        r = pathlib.Path(r).expanduser()
-        roots.append(r)
-        if (r / ".claude").exists():
-            roots.append(r / ".claude")
-    found: set[pathlib.Path] = set()
-    for root in roots:
-        if not root.exists():
-            continue
-        for p in root.rglob("SKILL.md"):
-            if p.parent.name == suffix:
-                found.add(p)
-    return sorted(found)
-
-
 def _jsonl_path_for(projects_root: pathlib.Path, cwd: str, session_id: str) -> pathlib.Path:
     """Reverse the encoded-cwd directory naming used by Claude Code."""
     raw_cwd = cwd.replace("~", str(pathlib.Path.home()), 1) if cwd.startswith("~") else cwd
@@ -271,39 +269,23 @@ def _jsonl_path_for(projects_root: pathlib.Path, cwd: str, session_id: str) -> p
 def write_investigation(
     db_path: pathlib.Path,
     out_dir: pathlib.Path,
-    skill: str,
+    skill_path: pathlib.Path,
     projects_root: pathlib.Path,
     window: int = 5,
     batch_size: int = 5,
 ) -> dict:
+    skill_path = pathlib.Path(skill_path).expanduser().resolve()
+    skill = skill_name_from_path(skill_path)
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    packet_path = out_dir / f"skill-{skill}-candidates.json"
-    prompt_path = out_dir / f"skill-{skill}-prompt.md"
+    safe = skill.replace(":", "-").replace("/", "-")
+    packet_path = out_dir / f"skill-{safe}-candidates.json"
+    prompt_path = out_dir / f"skill-{safe}-prompt.md"
 
     records = build_investigation(db_path, skill, projects_root, window=window)
     packet_path.write_text(json.dumps(records, indent=2))
 
-    candidate_cwds: list[pathlib.Path] = []
-    seen_cwds: set[str] = set()
-    for r in records:
-        # records carry jsonl_path under ~/.claude/projects; the original cwd is
-        # encoded in its parent dir name. Reconstruct it.
-        encoded = pathlib.Path(r["jsonl_path"]).parent.name
-        raw = "/" + encoded.lstrip("-").replace("-", "/")
-        if raw not in seen_cwds:
-            seen_cwds.add(raw)
-            candidate_cwds.append(pathlib.Path(raw))
-    skill_paths = find_skill_files(skill, extra_roots=candidate_cwds)
-    if skill_paths:
-        skill_locations = "The skill's SKILL.md file(s):\n" + "\n".join(
-            f"  - {p}" for p in skill_paths
-        )
-    else:
-        skill_locations = (
-            f"No SKILL.md found for `{skill}` under ~/.claude. The skill may be "
-            "user-typed slash text without a backing file; treat it as an alias."
-        )
+    skill_locations = f"The skill's SKILL.md file:\n  - {skill_path}"
 
     prompt = PROMPT_TEMPLATE.format(
         skill=skill,
@@ -316,6 +298,8 @@ def write_investigation(
     )
     prompt_path.write_text(prompt)
     return {
+        "skill": skill,
+        "skill_path": skill_path,
         "packet_path": packet_path,
         "prompt_path": prompt_path,
         "prompt": prompt,
